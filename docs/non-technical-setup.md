@@ -24,13 +24,14 @@ You need:
 
 1. Node.js 20 or newer installed
 2. A terminal window
-3. An API key from your provider, unless you are using a local model like Ollama
 
 ## Fastest Path
 
 1. Install OpenClaude with npm
-2. Set 3 environment variables
-3. Run `openclaude`
+2. Run `openclaude`
+3. Inside the CLI, run `/provider` for guided provider setup
+
+The `/provider` command walks you through choosing a provider and entering credentials. You do not need to set environment variables beforehand.
 
 ## Choose Your Operating System
 
@@ -39,11 +40,13 @@ You need:
 
 ## Which Provider Should You Choose?
 
+Once you have picked a provider, run `/provider` inside OpenClaude to set it up with guided prompts.
+
 ### OpenAI
 
 Choose this if:
 
-- you want the easiest setup
+- you want the easiest cloud setup
 - you already have an OpenAI API key
 
 ### Ollama
@@ -111,7 +114,7 @@ Cause:
 Fix:
 
 1. Get a fresh key from your provider
-2. Paste it again carefully
+2. Run `/provider` inside OpenClaude to update your credentials
 3. Re-run `openclaude`
 
 ### Ollama not working
