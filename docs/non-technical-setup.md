@@ -24,6 +24,7 @@ You need:
 
 1. Node.js 20 or newer installed
 2. A terminal window
+3. An API key from your provider, unless you are using a local model like Ollama
 
 ## Fastest Path
 
