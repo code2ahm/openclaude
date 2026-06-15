@@ -10,6 +10,15 @@ import { safeParseJSON } from './json.js'
 import { logError } from './log.js'
 import { getPlatform, SUPPORTED_PLATFORMS } from './platform.js'
 
+/**
+ * Resolves the path to the Claude Desktop configuration file based on the
+ * current platform. Supports macOS (~/Library/Application Support/Claude),
+ * native Windows (%APPDATA%/Claude), and WSL (/mnt/c/Users/...).
+ *
+ * Throws if the platform is not supported or if the required environment
+ * variable (%APPDATA%) is unset on Windows. The caller should handle these
+ * errors gracefully, as an absent config file is a normal state.
+ */
 export async function getClaudeDesktopConfigPath(): Promise<string> {
   const platform = getPlatform()
 
@@ -103,6 +112,11 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
   )
 }
 
+/**
+ * Reads MCP server configurations from the Claude Desktop config file.
+ * Returns an empty record if the config file does not exist or cannot be
+ * parsed, making it safe to call without error handling at the call site.
+ */
 export async function readClaudeDesktopMcpServers(): Promise<
   Record<string, McpServerConfig>
 > {
