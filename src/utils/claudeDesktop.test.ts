@@ -6,20 +6,28 @@ const isWindows = process.platform === 'win32'
 test('getClaudeDesktopConfigPath returns APPDATA path on Windows when APPDATA is set', async () => {
   if (!isWindows) return
 
-  const appData = process.env.APPDATA
-  const result = await getClaudeDesktopConfigPath()
-  expect(result).toBe(`${appData}\\Claude\\claude_desktop_config.json`)
+  const original = process.env.APPDATA
+  process.env.APPDATA = 'C:\\Users\\test\\AppData\\Roaming'
+  try {
+    const result = await getClaudeDesktopConfigPath()
+    expect(result).toBe(
+      'C:\\Users\\test\\AppData\\Roaming\\Claude\\claude_desktop_config.json',
+    )
+  } finally {
+    process.env.APPDATA = original
+  }
 })
 
 test('getClaudeDesktopConfigPath throws when APPDATA is unset on Windows', async () => {
   if (!isWindows) return
 
   const original = process.env.APPDATA
-  delete process.env.APPDATA
-
-  await expect(getClaudeDesktopConfigPath()).rejects.toThrow(
-    'APPDATA environment variable is not set.',
-  )
-
-  process.env.APPDATA = original
+  try {
+    delete process.env.APPDATA
+    await expect(getClaudeDesktopConfigPath()).rejects.toThrow(
+      'APPDATA environment variable is not set.',
+    )
+  } finally {
+    process.env.APPDATA = original
+  }
 })
