@@ -15,7 +15,7 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
 
   if (!SUPPORTED_PLATFORMS.includes(platform)) {
     throw new Error(
-      `Unsupported platform: ${platform} - Claude Desktop integration only works on macOS and WSL.`,
+      `Unsupported platform: ${platform} - Claude Desktop integration only works on macOS, Windows, and WSL.`,
     )
   }
 
@@ -29,7 +29,15 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
     )
   }
 
-  // First, try using USERPROFILE environment variable if available
+  if (platform === 'windows') {
+    const appData = process.env.APPDATA
+    if (!appData) {
+      throw new Error('APPDATA environment variable is not set.')
+    }
+    return join(appData, 'Claude', 'claude_desktop_config.json')
+  }
+
+  // WSL — try using USERPROFILE environment variable if available
   const windowsHome = process.env.USERPROFILE
     ? process.env.USERPROFILE.replace(/\\/g, '/') // Convert Windows backslashes to forward slashes
     : null
@@ -100,7 +108,7 @@ export async function readClaudeDesktopMcpServers(): Promise<
 > {
   if (!SUPPORTED_PLATFORMS.includes(getPlatform())) {
     throw new Error(
-      'Unsupported platform - Claude Desktop integration only works on macOS and WSL.',
+      'Unsupported platform - Claude Desktop integration only works on macOS, Windows, and WSL.',
     )
   }
   try {
