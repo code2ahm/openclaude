@@ -168,6 +168,9 @@ export async function readClaudeDesktopMcpServers(): Promise<
 
     return servers
   } catch (error) {
+    if (error instanceof Error && error.message.includes('APPDATA environment variable is not set.')) {
+      throw error
+    }
     logError(error)
     return {}
   }
