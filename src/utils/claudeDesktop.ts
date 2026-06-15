@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'fs/promises'
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, win32 } from 'path'
 import {
   type McpServerConfig,
   McpStdioServerConfigSchema,
@@ -43,7 +43,7 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
     if (!appData) {
       throw new Error('APPDATA environment variable is not set.')
     }
-    return join(appData, 'Claude', 'claude_desktop_config.json')
+    return win32.join(appData, 'Claude', 'claude_desktop_config.json')
   }
 
   // WSL — try using USERPROFILE environment variable if available

@@ -1,4 +1,5 @@
 import { afterAll, expect, mock, test } from 'bun:test'
+import { win32 } from 'path'
 
 // force the windows code path on any host os so ci exercises these branches.
 // mock.module is process-global, so save the real module first and restore
@@ -22,7 +23,7 @@ test('getClaudeDesktopConfigPath returns APPDATA path on Windows when APPDATA is
   try {
     const result = await getClaudeDesktopConfigPath()
     expect(result).toBe(
-      'C:\\Users\\test\\AppData\\Roaming\\Claude\\claude_desktop_config.json',
+      win32.join('C:\\Users\\test\\AppData\\Roaming', 'Claude', 'claude_desktop_config.json'),
     )
   } finally {
     process.env.APPDATA = original
