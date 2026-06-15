@@ -1,14 +1,20 @@
-import { expect, mock, test } from 'bun:test'
+import { afterAll, expect, mock, test } from 'bun:test'
 
-// force windows code path regardless of host os so ci (linux) covers it too.
-// mock.module is process-global in bun - this file controls the mock for the
-// lifetime of the process, so it must not re-export tested helpers.
+// force the windows code path on any host os so ci exercises these branches.
+// mock.module is process-global, so save the real module first and restore
+// it in afterAll to avoid breaking other test files.
+const realPlatform = await import('./platform.js')
+
 mock.module('./platform.js', () => ({
   getPlatform: () => 'windows' as const,
   SUPPORTED_PLATFORMS: ['macos', 'wsl', 'windows'],
 }))
 
 import { getClaudeDesktopConfigPath } from './claudeDesktop.js'
+
+afterAll(() => {
+  mock.module('./platform.js', () => realPlatform)
+})
 
 test('getClaudeDesktopConfigPath returns APPDATA path on Windows when APPDATA is set', async () => {
   const original = process.env.APPDATA
