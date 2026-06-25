@@ -44,7 +44,10 @@ import {
 } from '../../utils/effort.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
-import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
+import {
+  hydrateGithubModelsTokenFromSecureStorage,
+  refreshCopilotTokenOn401,
+} from '../../utils/githubModelsCredentials.js'
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
@@ -117,6 +120,11 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Editor-Version': 'vscode/1.99.3',
   'Editor-Plugin-Version': 'copilot-chat/0.26.7',
   'Copilot-Integration-Id': 'vscode-chat',
+}
+
+function isCopilotTokenExpiredError(text: string): boolean {
+  const lower = text.toLowerCase()
+  return lower.includes('token expired') || lower.includes('token has expired')
 }
 
 function isGithubModelsMode(): boolean {
@@ -2314,30 +2322,59 @@ class OpenAIShimMessages {
   ): Promise<Response> {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
-    const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
+    const isGithubCopilotEndpoint = isGithubMode && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
+    const isGithubWithCodexTransport = isGithubCopilotEndpoint && request.transport === 'codex_responses'
 
     if (isGithubWithCodexTransport) {
-      const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
-      if (!apiKey) {
-        throw new Error(
-          'GitHub Copilot auth is required. Run /onboard-github to sign in.',
-        )
-      }
+      let didRefreshCopilotCodexToken = false
+      let refreshedCopilotCodexToken: string | undefined
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const apiKey = refreshedCopilotCodexToken ?? this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+        if (!apiKey) {
+          throw new Error(
+            'GitHub Copilot auth is required. Run /onboard-github to sign in.',
+          )
+        }
 
-      return performCodexRequest({
-        request,
-        credentials: {
-          apiKey,
-          source: 'env',
-        },
-        params,
-        defaultHeaders: {
-          ...this.defaultHeaders,
-          ...filterAnthropicHeaders(options?.headers),
-          ...COPILOT_HEADERS,
-        },
-        signal: options?.signal,
-      })
+        try {
+          return await performCodexRequest({
+            request,
+            credentials: {
+              apiKey,
+              source: 'env',
+            },
+            params,
+            defaultHeaders: {
+              ...this.defaultHeaders,
+              ...filterAnthropicHeaders(options?.headers),
+              ...COPILOT_HEADERS,
+            },
+            signal: options?.signal,
+          })
+        } catch (error) {
+          if (
+            !didRefreshCopilotCodexToken &&
+            error instanceof APIError &&
+            error.status === 401
+          ) {
+            if (
+              apiKey === (process.env.OPENAI_API_KEY ?? '') &&
+              isCopilotTokenExpiredError(error.message)
+            ) {
+              didRefreshCopilotCodexToken = true
+              const refreshed = await refreshCopilotTokenOn401()
+              if (refreshed) {
+                const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
+                if (newApiKey && newApiKey !== apiKey) {
+                  refreshedCopilotCodexToken = newApiKey
+                  continue
+                }
+              }
+            }
+          }
+          throw error
+        }
+      }
     }
 
     if (request.transport === 'codex_responses' && !isGithubMode) {
@@ -2978,6 +3015,7 @@ class OpenAIShimMessages {
       const headers: Record<string, string> = { ...baseHeaders }
       const authValue =
         explicitCustomAuthHeaderValue ||
+        refreshedCopilotToken ||
         credentialLease?.value ||
         (credentialPool ? '' : singleAuthValue)
 
@@ -3077,6 +3115,8 @@ class OpenAIShimMessages {
     let requestUrl = buildRequestUrl(activeBaseUrl)
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
     let didRetryWithoutTools = false
+    let didRefreshCopilotToken = false
+    let refreshedCopilotToken: string | undefined
 
     const promoteNextLocalBaseUrl = (
       reason: 'endpoint_not_found' | 'localhost_resolution_failed',
@@ -3420,6 +3460,32 @@ class OpenAIShimMessages {
         body: errorBody,
         hasImages: bodyContainsImages(),
       })
+
+      // GitHub Copilot 401 with expired token: force-refresh and retry once.
+      // Only applies to the Copilot endpoint, not GitHub Models API or custom
+      // routes, and only when the failing credential is the stored Copilot
+      // token (not a provider override, route credential, or custom auth).
+      // The refreshed token is stored in refreshedCopilotToken so the next
+      // iteration's buildHeadersForAttempt picks it up instead of the stale
+      // singleAuthValue captured before the loop.
+      if (isGithubCopilot && response.status === 401 && !didRefreshCopilotToken) {
+        if (isCopilotTokenExpiredError(errorBody)) {
+          const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
+          if (oldToken && oldToken === (process.env.OPENAI_API_KEY ?? '')) {
+            didRefreshCopilotToken = true
+            const refreshed = await refreshCopilotTokenOn401()
+            if (refreshed) {
+              const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
+              if (newApiKey && newApiKey !== oldToken) {
+                refreshedCopilotToken = newApiKey
+              }
+              if (attempt < maxAttempts - 1) {
+                continue
+              }
+            }
+          }
+        }
+      }
 
       const credentialFailureKind =
         failure.category === 'auth_invalid' && !failure.retryable
