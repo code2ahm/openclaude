@@ -756,23 +756,42 @@ export function parseUserSpecifiedModel(
   }
   const normalizedModel = modelInputTrimmed.toLowerCase()
 
+  // Separate "the [1m] tag is present in the input" from "1M context is active".
+  // The tag must ALWAYS be stripped before alias/model matching, otherwise an
+  // aliased request like `sonnet[1m]` fails to resolve to its base model. Whether
+  // to re-append the tag depends on has1mContext, which returns false when 1M is
+  // disabled (CLAUDE_CODE_DISABLE_1M_CONTEXT) — in that case the request resolves
+  // to the base model with the tag dropped, not left as an unresolved alias.
+  const hasTagSyntax = /\[1m]$/i.test(normalizedModel)
   const has1mTag = has1mContext(normalizedModel)
-  const modelString = has1mTag
+  const modelString = hasTagSyntax
     ? normalizedModel.replace(/\[1m]$/i, '').trim()
     : normalizedModel
+
+  // Re-apply the [1m] tag policy to a resolved model. The resolved value may
+  // itself carry a [1m] suffix — e.g. a custom default override like
+  // ANTHROPIC_DEFAULT_SONNET_MODEL=Deploy[1m] baked into getDefaultSonnetModel().
+  // Strip whatever tag is present, then re-attach [1m] only when a tag was
+  // requested (on the user input OR the resolved default) AND 1M context is
+  // enabled. This guarantees CLAUDE_CODE_DISABLE_1M_CONTEXT drops the tag no
+  // matter where it came from, while still honoring an env default's opt-in.
+  const applyOneMTag = (resolved: ModelName): ModelName => {
+    const base = resolved.replace(/\[1m]$/i, '').trim()
+    return has1mTag || has1mContext(resolved) ? base + '[1m]' : base
+  }
 
   if (isModelAlias(modelString)) {
     switch (modelString) {
       case 'opusplan':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '') // Sonnet is default, Opus in plan mode
+        return applyOneMTag(getDefaultSonnetModel()) // Sonnet is default, Opus in plan mode
       case 'sonnet':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultSonnetModel())
       case 'haiku':
-        return getDefaultHaikuModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultHaikuModel())
       case 'opus':
-        return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultOpusModel())
       case 'best':
-        return getBestModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getBestModel())
       default:
     }
   }
@@ -799,7 +818,7 @@ export function parseUserSpecifiedModel(
     isLegacyOpusFirstParty(modelString) &&
     isLegacyModelRemapEnabled()
   ) {
-    return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+    return applyOneMTag(getDefaultOpusModel())
   }
 
   if (process.env.USER_TYPE === 'ant') {
@@ -817,10 +836,15 @@ export function parseUserSpecifiedModel(
     // can tell the user to restart/wait for flag cache refresh to get the latest values.
   }
 
-  // Preserve original case for custom model names (e.g., Azure Foundry deployment IDs)
-  // Only strip [1m] suffix if present, maintaining case of the base model
-  if (has1mTag) {
-    return modelInputTrimmed.replace(/\[1m\]$/i, '').trim() + '[1m]'
+  // Preserve original case for custom model names (e.g., Azure Foundry deployment IDs).
+  // Strip a present [1m] suffix (maintaining base-model case) and re-append it
+  // only when 1M is active — when disabled, a custom `mydeploy[1m]` must resolve
+  // to the base `mydeploy`, not an unservable `mydeploy[1m]` model id.
+  if (hasTagSyntax) {
+    return (
+      modelInputTrimmed.replace(/\[1m\]$/i, '').trim() +
+      (has1mTag ? '[1m]' : '')
+    )
   }
   return modelInputTrimmed
 }
