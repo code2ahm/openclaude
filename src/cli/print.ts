@@ -274,7 +274,10 @@ import {
   modelDisplayString,
   parseUserSpecifiedModel,
 } from 'src/utils/model/model.js'
-import { getModelOptions } from 'src/utils/model/modelOptions.js'
+import {
+  getModelOptions,
+  type ModelOption,
+} from 'src/utils/model/modelOptions.js'
 import {
   modelSupportsEffort,
   getAvailableEffortLevels,
@@ -383,6 +386,23 @@ const extractMemoriesModule = feature('EXTRACT_MEMORIES')
   ? (require('../services/extractMemories/extractMemories.js') as typeof import('../services/extractMemories/extractMemories.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+/**
+ * Select the model options that are safe to expose through the SDK `models`
+ * response. `getModelOptions()` also returns inactive-provider-profile entries
+ * whose `value` is an encoded `__switch_profile__:<id>:<model>` string (issue
+ * #1119). Those are UI-only affordances for the interactive `/model` switcher —
+ * they are not real, selectable model ids — so they must never reach SDK
+ * consumers. Exported so the exclusion is unit-testable.
+ *
+ * Filter on the explicit `switchToProfileId` marker rather than the encoded
+ * `value` prefix: a legitimate custom model id that happens to start with
+ * `__switch_profile__:` must still reach SDK consumers, and only the synthesized
+ * profile-switch options carry `switchToProfileId`.
+ */
+export function selectSdkModelOptions(options: ModelOption[]): ModelOption[] {
+  return options.filter(option => option.switchToProfileId === undefined)
+}
 
 const SHUTDOWN_TEAM_PROMPT = `<system-reminder>
 You are running in non-interactive mode and cannot return a response to the user until your team is shut down.
@@ -1357,7 +1377,7 @@ function runHeadlessStreaming(
     })
   }
 
-  const modelOptions = getModelOptions()
+  const modelOptions = selectSdkModelOptions(getModelOptions())
   const modelInfos: ModelInfo[] = modelOptions.map((option): ModelInfo => {
     const modelId = option.value === null ? 'default' : option.value
     const resolvedModel =
